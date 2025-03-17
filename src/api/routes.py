@@ -1,22 +1,61 @@
 """
-This module takes care of starting the API Server, Loading the DB and Adding the endpoints
+This module takes care of starting the API Server, loading the DB,
+and adding the endpoints including authentication.
 """
-from flask import Flask, request, jsonify, url_for, Blueprint
-from api.models import db, User
-from api.utils import generate_sitemap, APIException
+from flask import request, jsonify, Blueprint
 from flask_cors import CORS
+from api.models import db, User
+from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 
 api = Blueprint('api', __name__)
-
-# Allow CORS requests to this API
 CORS(api)
 
-
-@api.route('/hello', methods=['POST', 'GET'])
+@api.route('/hello', methods=['GET'])
 def handle_hello():
+    return jsonify({"message": "Hello from the backend!"}), 200
 
-    response_body = {
-        "message": "Hello! I'm a message that came from the backend, check the network tab on the google inspector and you will see the GET request"
-    }
+@api.route('/signup', methods=['POST'])
+def signup():
+    body = request.get_json()
+    email = body.get("email")
+    password = body.get("password")
 
-    return jsonify(response_body), 200
+    if not email or not password:
+        return jsonify({"msg": "Email and password required"}), 400
+
+    user_exists = User.query.filter_by(email=email).first()
+    if user_exists:
+        return jsonify({"msg": "User already exists"}), 400
+
+    user = User(email=email, password=password, is_active=True)
+    db.session.add(user)
+    db.session.commit()
+
+    return jsonify({"msg": "User created successfully"}), 200
+
+@api.route('/token', methods=['POST'])
+def create_token():
+    body = request.get_json()
+    email = body.get("email")
+    password = body.get("password")
+
+    user = User.query.filter_by(email=email, password=password).first()
+    if not user:
+        return jsonify({"msg": "Invalid credentials"}), 401
+
+    token = create_access_token(identity=user.id)
+    return jsonify({"token": token}), 200
+
+@api.route('/private', methods=['GET'])
+@jwt_required()
+def private():
+    user_id = get_jwt_identity()
+    user = User.query.get(user_id)
+
+    if user is None:
+        return jsonify({"msg": "User not found"}), 404
+
+    return jsonify({"msg": f"Welcome, {user.email}!"}), 200
+
+
+
